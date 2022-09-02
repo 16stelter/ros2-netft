@@ -141,7 +141,7 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
   out_of_order_count_(0),
   seq_counter_(0),
   diag_packet_count_(0),
-  last_diag_pub_time_(ros::Time::now()),
+  last_diag_pub_time_(rclcpp::Time::now()),
   last_rdt_sequence_(0),
   system_status_(0)
 {
@@ -165,7 +165,7 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     result = curl_easy_perform(curl);
     if(result != CURLE_OK)
-      ROS_WARN("Failed to connect to the F/T sensor webserver: %s",
+      RCLCPP_WARN(this->get_logger(), "Failed to connect to the F/T sensor webserver: %s",
               curl_easy_strerror(result));
     else
     {
@@ -173,13 +173,13 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
       xml_doc.Parse(response.c_str());
       if (xml_doc.Error())
       {
-        ROS_WARN_STREAM(xml_doc.ErrorDesc());
+        RCLCPP_WARN_STREAM(this->get_logger(), xml_doc.ErrorDesc());
       }
       else
       {
         TiXmlElement *cal_xml = xml_doc.FirstChildElement("netftCalibration");
         if (!cal_xml)
-          ROS_WARN("Could not find the 'netftCalibration' element in the xml file");
+          RCLCPP_WARN(this->get_logger(), "Could not find the 'netftCalibration' element in the xml file");
         else
         {
           // Counts per force
@@ -192,11 +192,11 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
             }
             catch (boost::bad_lexical_cast &/*e*/)
             {
-              ROS_WARN_STREAM("netftCalibration: calcpf [" << cpf_xml->GetText() << "] is not a number");
+              RCLCPP_WARN_STREAM(this->get_logger(), "netftCalibration: calcpf [" << cpf_xml->GetText() << "] is not a number");
             }
           }
           else
-            ROS_WARN("Could not find the 'calcpf' attribute");
+            RCLCPP_WARN(this->get_logger(), "Could not find the 'calcpf' attribute");
           // Counts per torque
           TiXmlElement *cpt_xml = cal_xml->FirstChildElement("calcpt");
           if (cpt_xml && cpt_xml->GetText())
@@ -207,11 +207,11 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
             }
             catch (boost::bad_lexical_cast &/*e*/)
             {
-              ROS_WARN_STREAM("netftCalibration: calcpt [" << cpt_xml->GetText() << "] is not a number");
+              RCLCPP_WARN_STREAM(this->get_logger(), "netftCalibration: calcpt [" << cpt_xml->GetText() << "] is not a number");
             }
           }
           else
-            ROS_WARN("Could not find the 'calcpt' attribute");
+            RCLCPP_WARN(this->get_logger(), "Could not find the 'calcpt' attribute");
         }
       }
     }
@@ -249,11 +249,11 @@ NetFTRDTDriver::~NetFTRDTDriver()
   stop_recv_thread_ = true;
   if (!recv_thread_.timed_join(boost::posix_time::time_duration(0,0,1,0)))
   {
-    ROS_WARN("Interrupting recv thread");
+    RCLCPP_WARN(this->get_logger(), "Interrupting recv thread");
     recv_thread_.interrupt();
     if (!recv_thread_.timed_join(boost::posix_time::time_duration(0,0,1,0)))
     {
-      ROS_WARN("Failed second join to recv thread");
+      RCLCPP_WARN(this->get_logger(), "Failed second join to recv thread");
     }
   }
   socket_.close();
@@ -301,7 +301,7 @@ void NetFTRDTDriver::recvThreadFunc()
       size_t len = socket_.receive(boost::asio::buffer(buffer, RDTRecord::RDT_RECORD_SIZE+1));
       if (len != RDTRecord::RDT_RECORD_SIZE)
       {
-        ROS_WARN("Receive size of %d bytes does not match expected size of %d", 
+        RCLCPP_WARN(this->get_logger(), "Receive size of %d bytes does not match expected size of %d",
                  int(len), int(RDTRecord::RDT_RECORD_SIZE));
       }
       else
@@ -323,7 +323,7 @@ void NetFTRDTDriver::recvThreadFunc()
         else 
         {
           tmp_data.header.seq = seq_counter_++;
-          tmp_data.header.stamp = ros::Time::now();
+          tmp_data.header.stamp = rclcpp::Time::now();
           tmp_data.header.frame_id = "base_link";
           tmp_data.wrench.force.x = double(rdt_record.fx_) * force_scale_;
           tmp_data.wrench.force.y = double(rdt_record.fy_) * force_scale_;
@@ -392,7 +392,7 @@ void NetFTRDTDriver::diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d)
     d.mergeSummaryf(d.ERROR, "NetFT reports error 0x%08x", system_status_);
   }
 
-  ros::Time current_time(ros::Time::now());
+  rclcpp::Time current_time(rclcpp::Time::now());
   double recv_rate = double(int32_t(packet_count_ - diag_packet_count_)) / (current_time - last_diag_pub_time_).toSec();
     
   d.clear();

@@ -41,7 +41,7 @@
 #include <iostream>
 #include <memory>
 #include <boost/program_options.hpp>
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <std_srvs/Empty.h>
 #include <geometry_msgs/WrenchStamped.h>
 #include <diagnostic_msgs/DiagnosticArray.h>
@@ -57,8 +57,8 @@ bool bias_srv_cb(std_srvs::Empty::Request &req,std_srvs::Empty::Response &rsp, b
 
 int main(int argc, char **argv)
 { 
-  ros::init(argc, argv, "netft_node");
-  ros::NodeHandle nh;
+  rclcpp::init(argc, argv, "netft_node");
+  rclcpp::NodeHandle nh;
 
   float pub_rate_hz;
   string address;
@@ -98,11 +98,11 @@ int main(int argc, char **argv)
   if (vm.count("wrench"))
   {
     publish_wrench = true;
-    ROS_WARN("Publishing NetFT data as geometry_msgs::Wrench is deprecated");
+    RCLCPP_WARN(this->get_logger(), "Publishing NetFT data as geometry_msgs::Wrench is deprecated");
   }
 
   boost::shared_ptr<netft_rdt_driver::NetFTRDTDriver> netft(new netft_rdt_driver::NetFTRDTDriver(address));
-  ros::Publisher pub;
+  rclcpp::Publisher pub;
   if (publish_wrench)
   {
     pub = nh.advertise<geometry_msgs::Wrench>("netft_data", 100);
@@ -111,19 +111,19 @@ int main(int argc, char **argv)
   {
     pub = nh.advertise<geometry_msgs::WrenchStamped>("netft_data", 100);
   }
-  ros::Rate pub_rate(pub_rate_hz);
+  rclcpp::Rate pub_rate(pub_rate_hz);
   geometry_msgs::WrenchStamped data;
 
-  ros::Duration diag_pub_duration(1.0);
-  ros::Publisher diag_pub = nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 2);
+  rclcpp::Duration diag_pub_duration(1.0);
+  rclcpp::Publisher diag_pub = nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 2);
   diagnostic_msgs::DiagnosticArray diag_array;
   diag_array.status.reserve(1);
   diagnostic_updater::DiagnosticStatusWrapper diag_status;
-  ros::Time last_diag_pub_time(ros::Time::now());
+  rclcpp::Time last_diag_pub_time(rclcpp::Time::now());
 
-  ros::ServiceServer bias_srv = nh.advertiseService<std_srvs::Empty::Request,std_srvs::Empty::Response>("/Bias_sensor",boost::bind(bias_srv_cb,_1,_2,netft));
+  rclcpp::ServiceServer bias_srv = nh.advertiseService<std_srvs::Empty::Request,std_srvs::Empty::Response>("/Bias_sensor",boost::bind(bias_srv_cb,_1,_2,netft));
 
-  while (ros::ok())
+  while (rclcpp::ok())
   {
     if (netft->waitForNewData())
     {
@@ -141,18 +141,18 @@ int main(int argc, char **argv)
       }
     }
     
-    ros::Time current_time(ros::Time::now());
+    rclcpp::Time current_time(rclcpp::Time::now());
     if ( (current_time - last_diag_pub_time) > diag_pub_duration )
     {
       diag_array.status.clear();
       netft->diagnostics(diag_status);
       diag_array.status.push_back(diag_status);
-      diag_array.header.stamp = ros::Time::now();
+      diag_array.header.stamp = rclcpp::Time::now();
       diag_pub.publish(diag_array);
       last_diag_pub_time = current_time;
     }
     
-    ros::spinOnce();
+    rclcpp::spinOnce();
     pub_rate.sleep();
   }
   

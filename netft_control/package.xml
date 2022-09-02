@@ -11,13 +11,15 @@
   <url type="bugtracker">https://github.com/fsuarez6/netft/issues</url>
   <url type="repository">https://github.com/fsuarez6/netft</url>
 
-  <buildtool_depend>catkin</buildtool_depend>
   <depend>controller_manager</depend>
   <depend>diagnostic_msgs</depend>
   <depend>diagnostic_updater</depend>
   <depend>force_torque_sensor_controller</depend>
   <depend>geometry_msgs</depend>
   <depend>hardware_interface</depend>
-  <depend>roscpp</depend>
+  <depend>rclcpp</depend>
   <depend>tinyxml</depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 </package>

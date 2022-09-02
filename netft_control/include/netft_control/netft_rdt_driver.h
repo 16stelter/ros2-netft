@@ -109,7 +109,7 @@ protected:
   //! Packet count last time diagnostics thread published output
   unsigned diag_packet_count_;
   //! Last time diagnostics was published
-  ros::Time last_diag_pub_time_;
+  rclcpp::Time last_diag_pub_time_;
   
   //! to keep track of out-of-order or duplicate packet
   uint32_t last_rdt_sequence_;

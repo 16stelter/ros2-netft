@@ -42,7 +42,7 @@
 #include <boost/algorithm/string.hpp>
 
 // ROS
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <realtime_tools/realtime_publisher.h>
 #include <geometry_msgs/WrenchStamped.h>
 #include <diagnostic_msgs/DiagnosticArray.h>
@@ -70,16 +70,16 @@ public:
     std::string frame_id, ip_address, topic;
     nh_private_.param("ip", ip_address, std::string(DEFAULT_IP_ADDRESS));
     if (!nh_private_.hasParam("ip"))
-      ROS_WARN_STREAM("Parameter [~ip] not found, using default: " << ip_address);
+      RCLCPP_WARN_STREAM(this->get_logger(), "Parameter [~ip] not found, using default: " << ip_address);
     nh_private_.param("rate", rate, 125.0);
     if (!nh_private_.hasParam("rate"))
-      ROS_WARN("Parameter [~rate] not found, using default: %.2f", rate);
+      RCLCPP_WARN(this->get_logger(), "Parameter [~rate] not found, using default: %.2f", rate);
     nh_private_.param(std::string("topic"), topic, std::string("raw"));
     if (!nh_private_.hasParam("topic"))
-      ROS_WARN_STREAM("Parameter [~topic] not found, using default: " << topic);
+      RCLCPP_WARN_STREAM(this->get_logger(), "Parameter [~topic] not found, using default: " << topic);
     nh_private_.param(std::string("frame_id"), frame_id, std::string("base_link"));
     if (!nh_private_.hasParam("frame_id"))
-      ROS_WARN_STREAM("Parameter [~frame_id] not found, using default: " << frame_id);
+      RCLCPP_WARN_STREAM(this->get_logger(), "Parameter [~frame_id] not found, using default: " << frame_id);
     // Set initial values
     force_[0] = 0;
     force_[1] = 0;
@@ -91,34 +91,34 @@ public:
     hardware_interface::ForceTorqueSensorHandle ft_sensor_handle(topic, frame_id, force_, torque_);
     ft_sensor_interface_.registerHandle(ft_sensor_handle);
     registerInterface(&ft_sensor_interface_);
-    ROS_INFO_NAMED("netft_ros_driver", "Registered ForceTorqueSensorInterface");
+    RCLCPP_INFO(this->get_logger(), "Registered ForceTorqueSensorInterface");
     // Will publish diagnostics every second
     diag_publisher_.reset(new realtime_tools::RealtimePublisher<diagnostic_msgs::DiagnosticArray>(nh_, "diagnostics", 2));
-    diag_pub_duration_ = ros::Duration(1.0);
+    diag_pub_duration_ = rclcpp::Duration(1.0);
     diag_array_.status.reserve(1);
     // Connect to the netft sensor
     try {
       netft_.reset(new netft_rdt_driver::NetFTRDTDriver(ip_address));
     }
     catch (...) {
-      ROS_ERROR("Failed to connect to netft with IP address: %s. Please DOUBLE CHECK the connection with the sensor", ip_address.c_str());
+      RCLCPP_ERROR(this->get_logger(), "Failed to connect to netft with IP address: %s. Please DOUBLE CHECK the connection with the sensor", ip_address.c_str());
       return;
     }
     // Start the controller manager 
     controller_manager_.reset(new controller_manager::ControllerManager(this, nh_));
-    ros::Duration update_period = ros::Duration(1.0/rate);
+    rclcpp::Duration update_period = rclcpp::Duration(1.0/rate);
     non_realtime_loop_ = nh_.createTimer(update_period, &NetftRosDriver::update, this);
-    ROS_INFO_NAMED("netft_ros_driver", "Loaded netft_ros_driver.");
+    RCLCPP_INFO(this->get_logger(), "Loaded netft_ros_driver.");
   }
   
   ~NetftRosDriver()
   {
   }
   
-  void update(const ros::TimerEvent& e)
+  void update(const rclcpp::TimerEvent& e)
   {
-    ros::Duration period = ros::Duration(e.current_real - e.last_real);
-    controller_manager_->update(ros::Time::now(), period);
+    rclcpp::Duration period = rclcpp::Duration(e.current_real - e.last_real);
+    controller_manager_->update(rclcpp::Time::now(), period);
     // Read data and publish diagnostics
     geometry_msgs::WrenchStamped data;
     if (netft_->waitForNewData())
@@ -131,16 +131,16 @@ public:
       torque_[1] =  data.wrench.torque.y;
       torque_[2] =  data.wrench.torque.z;
     }
-    ros::Time current_time(ros::Time::now());
+    rclcpp::Time current_time(rclcpp::Time::now());
     if ( (current_time - last_diag_pub_time_) > diag_pub_duration_ )
     {
       diag_array_.status.clear();
       netft_->diagnostics(diag_status_);
       diag_array_.status.push_back(diag_status_);
-      diag_array_.header.stamp = ros::Time::now();
+      diag_array_.header.stamp = rclcpp::Time::now();
       if(diag_publisher_->trylock())
       {
-        diag_publisher_->msg_.header.stamp = ros::Time::now();
+        diag_publisher_->msg_.header.stamp = rclcpp::Time::now();
         diag_publisher_->msg_.status = diag_array_.status;
         diag_publisher_->unlockAndPublish();
       }
@@ -150,17 +150,17 @@ public:
 
 private:
   // ROS
-  ros::NodeHandle   nh_, nh_private_;
+  rclcpp::NodeHandle   nh_, nh_private_;
   // NetFT
   boost::scoped_ptr<netft_rdt_driver::NetFTRDTDriver>       netft_;
   // Diagnostics
   boost::scoped_ptr<realtime_tools::RealtimePublisher<diagnostic_msgs::DiagnosticArray> >  diag_publisher_;
   diagnostic_msgs::DiagnosticArray                          diag_array_;
   diagnostic_updater::DiagnosticStatusWrapper               diag_status_;
-  ros::Time                                                 last_diag_pub_time_;
-  ros::Duration                                             diag_pub_duration_;
+  rclcpp::Time                                                 last_diag_pub_time_;
+  rclcpp::Duration                                             diag_pub_duration_;
   // Controller Manager
-  ros::Timer                                                non_realtime_loop_;
+  rclcpp::Timer                                                non_realtime_loop_;
   boost::shared_ptr<controller_manager::ControllerManager>  controller_manager_;
   // Interfaces
   hardware_interface::ForceTorqueSensorInterface            ft_sensor_interface_;
@@ -172,10 +172,10 @@ private:
 
 int main(int argc, char **argv)
 {
-  ros::init (argc, argv, "netft_ros_driver");
-  ros::NodeHandle nh;
+  rclcpp::init (argc, argv, "netft_ros_driver");
+  rclcpp::NodeHandle nh;
   // Multi-threaded spinning
-  ros::MultiThreadedSpinner spinner(4);
+  rclcpp::MultiThreadedSpinner spinner(4);
   // Start the ros driver
   NetftRosDriver driver;
   spinner.spin();
