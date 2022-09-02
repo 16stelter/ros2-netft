@@ -1,3 +1,5 @@
+This is a ROS2 port for the ATI NET/FT box. As of now, this port is not completed and won't work. Original documentation below:
+
 # netft
 
 This is a ROS metapackage for the ATI NET/FT box that is used to connect to ATI F/T sensor.
