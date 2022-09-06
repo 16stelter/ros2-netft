@@ -45,8 +45,8 @@
 #include <tinyxml.h>
 #include <boost/lexical_cast.hpp>
 
-#include "diagnostic_updater/DiagnosticStatusWrapper.h"
-#include "geometry_msgs/WrenchStamped.h"
+#include "diagnostic_updater/diagnostic_updater.hpp"
+#include "geometry_msgs/msg/wrench_stamped.hpp"
 
 namespace netft_rdt_driver
 {
@@ -60,7 +60,7 @@ public:
   ~NetFTRDTDriver();
 
   //! Get newest RDT data from netFT device
-  void getData(geometry_msgs::WrenchStamped &data);
+  void getData(geometry_msgs::msg::WrenchStamped &data);
 
   //! Add device diagnostics status wrapper
   void diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d);
@@ -91,7 +91,7 @@ protected:
   std::string recv_thread_error_msg_; 
 
   //! Newest data received from netft device
-  geometry_msgs::WrenchStamped new_data_;
+  geometry_msgs::msg::WrenchStamped new_data_;
   //! Count number of received <good> packets
   unsigned packet_count_;
   //! Count of lost RDT packets using RDT sequence number
@@ -109,7 +109,7 @@ protected:
   //! Packet count last time diagnostics thread published output
   unsigned diag_packet_count_;
   //! Last time diagnostics was published
-  rclcpp::Time last_diag_pub_time_;
+  std::chrono::system_clock::time_point last_diag_pub_time_;
   
   //! to keep track of out-of-order or duplicate packet
   uint32_t last_rdt_sequence_;

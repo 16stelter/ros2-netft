@@ -141,7 +141,7 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
   out_of_order_count_(0),
   seq_counter_(0),
   diag_packet_count_(0),
-  last_diag_pub_time_(rclcpp::Time::now()),
+  last_diag_pub_time_(std::chrono::system_clock::now()),
   last_rdt_sequence_(0),
   system_status_(0)
 {
@@ -149,9 +149,9 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
   udp::endpoint netft_endpoint( boost::asio::ip::address_v4::from_string(address), RDT_PORT);
   socket_.open(udp::v4());
   socket_.connect(netft_endpoint);
-  
+
   // Get Force/Torque scale from device webserver
-  double counts_per_force = 1000000;  
+  double counts_per_force = 1000000;
   double counts_per_torque = 1000000000;
   CURL *curl;
   CURLcode result;
@@ -165,7 +165,7 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     result = curl_easy_perform(curl);
     if(result != CURLE_OK)
-      RCLCPP_WARN(this->get_logger(), "Failed to connect to the F/T sensor webserver: %s",
+      RCLCPP_WARN(rclcpp::get_logger("netft_driver"), "Failed to connect to the F/T sensor webserver: %s",
               curl_easy_strerror(result));
     else
     {
@@ -173,13 +173,13 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
       xml_doc.Parse(response.c_str());
       if (xml_doc.Error())
       {
-        RCLCPP_WARN_STREAM(this->get_logger(), xml_doc.ErrorDesc());
+        RCLCPP_WARN_STREAM(rclcpp::get_logger("netft_driver"), xml_doc.ErrorDesc());
       }
       else
       {
         TiXmlElement *cal_xml = xml_doc.FirstChildElement("netftCalibration");
         if (!cal_xml)
-          RCLCPP_WARN(this->get_logger(), "Could not find the 'netftCalibration' element in the xml file");
+          RCLCPP_WARN(rclcpp::get_logger("netft_driver"), "Could not find the 'netftCalibration' element in the xml file");
         else
         {
           // Counts per force
@@ -192,11 +192,11 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
             }
             catch (boost::bad_lexical_cast &/*e*/)
             {
-              RCLCPP_WARN_STREAM(this->get_logger(), "netftCalibration: calcpf [" << cpf_xml->GetText() << "] is not a number");
+              RCLCPP_WARN_STREAM(rclcpp::get_logger("netft_driver"), "netftCalibration: calcpf [" << cpf_xml->GetText() << "] is not a number");
             }
           }
           else
-            RCLCPP_WARN(this->get_logger(), "Could not find the 'calcpf' attribute");
+            RCLCPP_WARN(rclcpp::get_logger("netft_driver"), "Could not find the 'calcpf' attribute");
           // Counts per torque
           TiXmlElement *cpt_xml = cal_xml->FirstChildElement("calcpt");
           if (cpt_xml && cpt_xml->GetText())
@@ -207,11 +207,11 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
             }
             catch (boost::bad_lexical_cast &/*e*/)
             {
-              RCLCPP_WARN_STREAM(this->get_logger(), "netftCalibration: calcpt [" << cpt_xml->GetText() << "] is not a number");
+              RCLCPP_WARN_STREAM(rclcpp::get_logger("netft_driver"), "netftCalibration: calcpt [" << cpt_xml->GetText() << "] is not a number");
             }
           }
           else
-            RCLCPP_WARN(this->get_logger(), "Could not find the 'calcpt' attribute");
+            RCLCPP_WARN(rclcpp::get_logger("netft_driver"), "Could not find the 'calcpt' attribute");
         }
       }
     }
@@ -221,7 +221,7 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
   force_scale_ = 1.0 / counts_per_force;
   torque_scale_ = 1.0 / counts_per_torque;
 
-  // Start receive thread  
+  // Start receive thread
   recv_thread_ = boost::thread(&NetFTRDTDriver::recvThreadFunc, this);
 
   // Since start steaming command is sent with UDP packet,
@@ -244,16 +244,16 @@ NetFTRDTDriver::NetFTRDTDriver(const std::string &address) :
 
 NetFTRDTDriver::~NetFTRDTDriver()
 {
-  // TODO stop transmission, 
+  // TODO stop transmission,
   // stop thread
   stop_recv_thread_ = true;
   if (!recv_thread_.timed_join(boost::posix_time::time_duration(0,0,1,0)))
   {
-    RCLCPP_WARN(this->get_logger(), "Interrupting recv thread");
+    RCLCPP_WARN(rclcpp::get_logger("netft_driver"), "Interrupting recv thread");
     recv_thread_.interrupt();
     if (!recv_thread_.timed_join(boost::posix_time::time_duration(0,0,1,0)))
     {
-      RCLCPP_WARN(this->get_logger(), "Failed second join to recv thread");
+      RCLCPP_WARN(rclcpp::get_logger("netft_driver"), "Failed second join to recv thread");
     }
   }
   socket_.close();
@@ -267,7 +267,7 @@ bool NetFTRDTDriver::waitForNewData()
   {
     boost::mutex::scoped_lock lock(mutex_);
     unsigned current_packet_count = packet_count_;
-    condition_.timed_wait(lock, boost::posix_time::milliseconds(100));    
+    condition_.timed_wait(lock, boost::posix_time::milliseconds(100));
     got_new_data = packet_count_ != current_packet_count;
   }
 
@@ -278,13 +278,13 @@ bool NetFTRDTDriver::waitForNewData()
 void NetFTRDTDriver::startStreaming(void)
 {
   // Command NetFT to start data transmission
-  RDTCommand start_transmission; 
+  RDTCommand start_transmission;
   start_transmission.command_ = RDTCommand::CMD_START_HIGH_SPEED_STREAMING;
   start_transmission.sample_count_ = RDTCommand::INFINITE_SAMPLES;
   // TODO change buffer into boost::array
   uint8_t buffer[RDTCommand::RDT_COMMAND_SIZE];
   start_transmission.pack(buffer);
-  socket_.send(boost::asio::buffer(buffer, RDTCommand::RDT_COMMAND_SIZE)); 
+  socket_.send(boost::asio::buffer(buffer, RDTCommand::RDT_COMMAND_SIZE));
 }
 
 
@@ -294,14 +294,14 @@ void NetFTRDTDriver::recvThreadFunc()
   try {
     recv_thread_running_ = true;
     RDTRecord rdt_record;
-    geometry_msgs::WrenchStamped tmp_data;
+    geometry_msgs::msg::WrenchStamped tmp_data;
     uint8_t buffer[RDTRecord::RDT_RECORD_SIZE+1];
     while (!stop_recv_thread_)
     {
       size_t len = socket_.receive(boost::asio::buffer(buffer, RDTRecord::RDT_RECORD_SIZE+1));
       if (len != RDTRecord::RDT_RECORD_SIZE)
       {
-        RCLCPP_WARN(this->get_logger(), "Receive size of %d bytes does not match expected size of %d",
+        RCLCPP_WARN(rclcpp::get_logger("netft_driver"), "Receive size of %d bytes does not match expected size of %d",
                  int(len), int(RDTRecord::RDT_RECORD_SIZE));
       }
       else
@@ -320,10 +320,8 @@ void NetFTRDTDriver::recvThreadFunc()
           // Don't use data that is old
           ++out_of_order_count_;
         }
-        else 
+        else
         {
-          tmp_data.header.seq = seq_counter_++;
-          tmp_data.header.stamp = rclcpp::Time::now();
           tmp_data.header.frame_id = "base_link";
           tmp_data.wrench.force.x = double(rdt_record.fx_) * force_scale_;
           tmp_data.wrench.force.y = double(rdt_record.fy_) * force_scale_;
@@ -342,7 +340,7 @@ void NetFTRDTDriver::recvThreadFunc()
     } // end while
   }
   catch (std::exception &e)
-  {    
+  {
     recv_thread_running_ = false;
     { boost::unique_lock<boost::mutex> lock(mutex_);
       recv_thread_error_msg_ = e.what();
@@ -351,11 +349,11 @@ void NetFTRDTDriver::recvThreadFunc()
 }
 
 
-void NetFTRDTDriver::getData(geometry_msgs::WrenchStamped &data)
+void NetFTRDTDriver::getData(geometry_msgs::msg::WrenchStamped &data)
 {
   { boost::unique_lock<boost::mutex> lock(mutex_);
     data = new_data_;
-  }  
+  }
 }
 
 bool NetFTRDTDriver::biasSensor(){
@@ -373,7 +371,7 @@ void NetFTRDTDriver::diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d)
 {
   // Publish diagnostics
   d.name = "NetFT RDT Driver : " + address_;
-  
+
   d.summary(d.OK, "OK");
   d.hardware_id = "0";
 
@@ -392,8 +390,9 @@ void NetFTRDTDriver::diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d)
     d.mergeSummaryf(d.ERROR, "NetFT reports error 0x%08x", system_status_);
   }
 
-  rclcpp::Time current_time(rclcpp::Time::now());
-  double recv_rate = double(int32_t(packet_count_ - diag_packet_count_)) / (current_time - last_diag_pub_time_).toSec();
+  std::chrono::system_clock::time_point current_time = std::chrono::system_clock::now();
+  std::chrono::duration<double> diff = current_time - last_diag_pub_time_;
+  double recv_rate = double(int32_t(packet_count_ - diag_packet_count_)) / diff.count();
     
   d.clear();
   d.addf("IP Address", "%s", address_.c_str());
@@ -405,7 +404,7 @@ void NetFTRDTDriver::diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d)
   d.addf("Force scale (N/bit)", "%f", force_scale_);
   d.addf("Torque scale (Nm/bit)", "%f", torque_scale_);
 
-  geometry_msgs::WrenchStamped data;
+  geometry_msgs::msg::WrenchStamped data;
   getData(data);
   d.addf("Force X (N)",   "%f", data.wrench.force.x);
   d.addf("Force Y (N)",   "%f", data.wrench.force.y);

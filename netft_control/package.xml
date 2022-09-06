@@ -14,9 +14,7 @@
   <depend>controller_manager</depend>
   <depend>diagnostic_msgs</depend>
   <depend>diagnostic_updater</depend>
-  <depend>force_torque_sensor_controller</depend>
   <depend>geometry_msgs</depend>
-  <depend>hardware_interface</depend>
   <depend>rclcpp</depend>
   <depend>tinyxml</depend>
   <export>
