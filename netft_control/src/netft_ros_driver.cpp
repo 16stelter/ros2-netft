@@ -45,11 +45,11 @@
 #include <rclcpp/rclcpp.hpp>
 #include <realtime_tools/realtime_publisher.h>
 #include <geometry_msgs/WrenchStamped.h>
-#include <diagnostic_msgs/DiagnosticArray.h>
-#include <diagnostic_updater/DiagnosticStatusWrapper.h>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include "diagnostic_updater/diagnostic_updater.hpp"
 
 // ros-control
-#include <controller_manager/controller_manager.h>
+#include <controller_manager/controller_manager.hpp>
 #include <hardware_interface/force_torque_sensor_interface.h>
 #include <hardware_interface/robot_hw.h>
 

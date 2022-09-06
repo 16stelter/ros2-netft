@@ -4,6 +4,7 @@ project(netft_control)
 find_package(ament_cmake REQUIRED)
 find_package(force_torque_sensor_broadcaster REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(diagnostic_updater REQUIRED)
 
@@ -33,7 +34,7 @@ add_executable(netft_node src/netft_node.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(netft_node netft_rdt_driver)
-ament_target_dependencies(netft_node diagnostic_msgs diagnostic_updater geometry_msgs hardware_interface rclcpp)
+ament_target_dependencies(netft_node diagnostic_msgs std_srvs diagnostic_updater geometry_msgs hardware_interface rclcpp)
 
 
 # NetFT ROS controller

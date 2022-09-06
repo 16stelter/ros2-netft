@@ -42,37 +42,38 @@
 #include <memory>
 #include <boost/program_options.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <std_srvs/Empty.h>
+#include <std_srvs/srv/empty.hpp>
 #include <geometry_msgs/WrenchStamped.h>
-#include <diagnostic_msgs/DiagnosticArray.h>
-#include <diagnostic_updater/DiagnosticStatusWrapper.h>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include "diagnostic_updater/diagnostic_updater.hpp"
 #include "netft_control/netft_rdt_driver.h"
 
 namespace po = boost::program_options;
 using namespace std;
+using namespace std::placeholders;
 
-bool bias_srv_cb(std_srvs::Empty::Request &req,std_srvs::Empty::Response &rsp, boost::shared_ptr<netft_rdt_driver::NetFTRDTDriver> driver_ptr){
+bool bias_srv_cb(shared_ptr<std_srvs::srv::Empty::Request> &req,shared_ptr<std_srvs::srv::Empty::Response> &rsp, boost::shared_ptr<netft_rdt_driver::NetFTRDTDriver> driver_ptr){
     return driver_ptr->biasSensor();
 }
 
 int main(int argc, char **argv)
-{ 
-  rclcpp::init(argc, argv, "netft_node");
-  rclcpp::NodeHandle nh;
+{
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<rclcpp::Node>("netft_node");
 
-  float pub_rate_hz;
+  double pub_rate_hz;
   string address;
   string frame_id;
 
   po::options_description desc("Options");
   desc.add_options()
     ("help", "display help")
-    ("rate", po::value<float>(&pub_rate_hz)->default_value(100.0), "set publish rate (in hertz)")
+    ("rate", po::value<double>(&pub_rate_hz)->default_value(100.0), "set publish rate (in hertz)")
     ("wrench", "publish older Wrench message type instead of WrenchStamped")
     ("address", po::value<string>(&address), "IP address of NetFT box")
     ("frame_id", po::value<string>(&frame_id)->default_value("base_link"), "Frame ID for Wrench data")
     ;
-     
+
   po::positional_options_description p;
   p.add("address",  1);
 
@@ -85,7 +86,7 @@ int main(int argc, char **argv)
     cout << desc << endl;
     //usage(progname);
     exit(EXIT_SUCCESS);
-  }      
+  }
 
   if (!vm.count("address"))
   {
@@ -94,67 +95,50 @@ int main(int argc, char **argv)
     exit(EXIT_FAILURE);
   }
 
-  bool publish_wrench = false;
   if (vm.count("wrench"))
   {
-    publish_wrench = true;
-    RCLCPP_WARN(this->get_logger(), "Publishing NetFT data as geometry_msgs::Wrench is deprecated");
+    RCLCPP_ERROR(node->get_logger(), "Publishing NetFT data as geometry_msgs::msg::Wrench is deprecated");
   }
 
   boost::shared_ptr<netft_rdt_driver::NetFTRDTDriver> netft(new netft_rdt_driver::NetFTRDTDriver(address));
-  rclcpp::Publisher pub;
-  if (publish_wrench)
-  {
-    pub = nh.advertise<geometry_msgs::Wrench>("netft_data", 100);
-  }
-  else 
-  {
-    pub = nh.advertise<geometry_msgs::WrenchStamped>("netft_data", 100);
-  }
-  rclcpp::Rate pub_rate(pub_rate_hz);
-  geometry_msgs::WrenchStamped data;
 
-  rclcpp::Duration diag_pub_duration(1.0);
-  rclcpp::Publisher diag_pub = nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 2);
-  diagnostic_msgs::DiagnosticArray diag_array;
+  rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub = node->create_publisher<geometry_msgs::msg::WrenchStamped>("netft_data", 100);
+
+  rclcpp::Rate pub_rate(pub_rate_hz);
+  geometry_msgs::msg::WrenchStamped data;
+
+  std::chrono::duration<double> diag_pub_duration = 1.0s;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 2);
+  diagnostic_msgs::msg::DiagnosticArray diag_array;
   diag_array.status.reserve(1);
   diagnostic_updater::DiagnosticStatusWrapper diag_status;
-  rclcpp::Time last_diag_pub_time(rclcpp::Time::now());
+  std::chrono::system_clock::time_point last_diag_pub_time = std::chrono::system_clock::now();
 
-  rclcpp::ServiceServer bias_srv = nh.advertiseService<std_srvs::Empty::Request,std_srvs::Empty::Response>("/Bias_sensor",boost::bind(bias_srv_cb,_1,_2,netft));
+  rclcpp::Service<std_srvs::srv::Empty>::SharedPtr bias_srv = node->create_service<std_srvs::srv::Empty>("/Bias_sensor",boost::bind(bias_srv_cb,_1,_2,netft));
 
   while (rclcpp::ok())
   {
     if (netft->waitForNewData())
     {
       netft->getData(data);
-      if (publish_wrench) 
-      {
-        //geometry_msgs::Wrench(data.wrench);
-	data.header.frame_id = frame_id;
-        pub.publish(data.wrench);
-      }
-      else 
-      {
-   	data.header.frame_id = frame_id;
-        pub.publish(data);
-      }
+
+      data.header.frame_id = frame_id;
+      pub->publish(data);
     }
-    
-    rclcpp::Time current_time(rclcpp::Time::now());
+
+    std::chrono::system_clock::time_point current_time(std::chrono::system_clock::now());
     if ( (current_time - last_diag_pub_time) > diag_pub_duration )
     {
       diag_array.status.clear();
       netft->diagnostics(diag_status);
       diag_array.status.push_back(diag_status);
-      diag_array.header.stamp = rclcpp::Time::now();
-      diag_pub.publish(diag_array);
+      diag_pub->publish(diag_array);
       last_diag_pub_time = current_time;
     }
-    
-    rclcpp::spinOnce();
+
+    rclcpp::spin_some(node);
     pub_rate.sleep();
   }
-  
+
   return 0;
 }
