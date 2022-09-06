@@ -52,93 +52,110 @@ namespace po = boost::program_options;
 using namespace std;
 using namespace std::placeholders;
 
-bool bias_srv_cb(shared_ptr<std_srvs::srv::Empty::Request> &req,shared_ptr<std_srvs::srv::Empty::Response> &rsp, boost::shared_ptr<netft_rdt_driver::NetFTRDTDriver> driver_ptr){
-    return driver_ptr->biasSensor();
+namespace netft {
+  class NetftNode : public rclcpp::Node {
+  public:
+
+    rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_;
+
+    NetftNode(int argc, char *argv[]) :
+      Node("netft_node"),
+      driver_(""){
+
+      string address;
+
+      po::options_description desc("Options");
+      desc.add_options()
+        ("help", "display help")
+        ("rate", po::value<double>(&pub_rate_hz_)->default_value(100.0), "set publish rate (in hertz)")
+        ("wrench", "publish older Wrench message type instead of WrenchStamped")
+        ("address", po::value<string>(&address), "IP address of NetFT box")
+        ("frame_id", po::value<string>(&frame_id_)->default_value("base_link"), "Frame ID for Wrench data");
+
+      po::positional_options_description p;
+      p.add("address", 1);
+
+      po::variables_map vm;
+      po::store(po::command_line_parser(argc, argv).options(desc).positional(p).run(), vm);
+      po::notify(vm);
+
+      if (vm.count("help")) {
+        cout << desc << endl;
+        //usage(progname);
+        exit(EXIT_SUCCESS);
+      }
+
+      if (!vm.count("address")) {
+        cout << desc << endl;
+        cerr << "Please specify address of NetFT" << endl;
+        exit(EXIT_FAILURE);
+      }
+
+      if (vm.count("wrench")) {
+        RCLCPP_ERROR(this->get_logger(), "Publishing NetFT data as geometry_msgs::msg::Wrench is deprecated");
+      }
+
+      pub_ = this->create_publisher<geometry_msgs::msg::WrenchStamped>("netft_data", 100);
+
+      geometry_msgs::msg::WrenchStamped data;
+
+      diag_pub_duration_ = 1.0s;
+      diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 2);
+      diag_array_.status.reserve(1);
+      last_diag_pub_time_ = std::chrono::system_clock::now();
+
+      rclcpp::Service<std_srvs::srv::Empty>::SharedPtr bias_srv_ = this->create_service<std_srvs::srv::Empty>(
+        "/Bias_sensor", std::bind(&NetftNode::bias_srv_cb, this, _1, _2));
+      driver_ = netft_rdt_driver::NetFTRDTDriver(address);
+      this->loop();
+    }
+
+    bool bias_srv_cb(const shared_ptr <std_srvs::srv::Empty::Request> req,
+                                shared_ptr <std_srvs::srv::Empty::Response> rsp) {
+      return driver_.biasSensor();
+    }
+
+    void loop() {
+
+      rclcpp::Rate pub_rate = rclcpp::Rate(pub_rate_hz_);
+      while (rclcpp::ok()) {
+        if (driver_.waitForNewData()) {
+          driver_.getData(data);
+
+          data.header.frame_id = frame_id_;
+          pub_->publish(data);
+        }
+
+        std::chrono::system_clock::time_point current_time(std::chrono::system_clock::now());
+        if ((current_time - last_diag_pub_time_) > diag_pub_duration_) {
+          diag_array_.status.clear();
+          driver_.diagnostics(diag_status_);
+          diag_array_.status.push_back(diag_status_);
+          diag_pub_->publish(diag_array_);
+          last_diag_pub_time_ = current_time;
+        }
+
+        rclcpp::spin_some(this->get_node_base_interface());
+        pub_rate.sleep();
+      }
+
+    }
+
+  private:
+    netft_rdt_driver::NetFTRDTDriver driver_;
+    string frame_id_;
+    double pub_rate_hz_;
+
+    diagnostic_msgs::msg::DiagnosticArray diag_array_;
+    diagnostic_updater::DiagnosticStatusWrapper diag_status_;
+    std::chrono::system_clock::time_point last_diag_pub_time_;
+    std::chrono::duration<double> diag_pub_duration_;
+  };
 }
-
-int main(int argc, char **argv)
-{
+int main(int argc, char * argv[]) {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<rclcpp::Node>("netft_node");
-
-  double pub_rate_hz;
-  string address;
-  string frame_id;
-
-  po::options_description desc("Options");
-  desc.add_options()
-    ("help", "display help")
-    ("rate", po::value<double>(&pub_rate_hz)->default_value(100.0), "set publish rate (in hertz)")
-    ("wrench", "publish older Wrench message type instead of WrenchStamped")
-    ("address", po::value<string>(&address), "IP address of NetFT box")
-    ("frame_id", po::value<string>(&frame_id)->default_value("base_link"), "Frame ID for Wrench data")
-    ;
-
-  po::positional_options_description p;
-  p.add("address",  1);
-
-  po::variables_map vm;
-  po::store(po::command_line_parser(argc, argv).options(desc).positional(p).run(), vm);
-  po::notify(vm);
-
-  if (vm.count("help"))
-  {
-    cout << desc << endl;
-    //usage(progname);
-    exit(EXIT_SUCCESS);
-  }
-
-  if (!vm.count("address"))
-  {
-    cout << desc << endl;
-    cerr << "Please specify address of NetFT" << endl;
-    exit(EXIT_FAILURE);
-  }
-
-  if (vm.count("wrench"))
-  {
-    RCLCPP_ERROR(node->get_logger(), "Publishing NetFT data as geometry_msgs::msg::Wrench is deprecated");
-  }
-
-  boost::shared_ptr<netft_rdt_driver::NetFTRDTDriver> netft(new netft_rdt_driver::NetFTRDTDriver(address));
-
-  rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub = node->create_publisher<geometry_msgs::msg::WrenchStamped>("netft_data", 100);
-
-  rclcpp::Rate pub_rate(pub_rate_hz);
-  geometry_msgs::msg::WrenchStamped data;
-
-  std::chrono::duration<double> diag_pub_duration = 1.0s;
-  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 2);
-  diagnostic_msgs::msg::DiagnosticArray diag_array;
-  diag_array.status.reserve(1);
-  diagnostic_updater::DiagnosticStatusWrapper diag_status;
-  std::chrono::system_clock::time_point last_diag_pub_time = std::chrono::system_clock::now();
-
-  rclcpp::Service<std_srvs::srv::Empty>::SharedPtr bias_srv = node->create_service<std_srvs::srv::Empty>("/Bias_sensor",boost::bind(bias_srv_cb,_1,_2,netft));
-
-  while (rclcpp::ok())
-  {
-    if (netft->waitForNewData())
-    {
-      netft->getData(data);
-
-      data.header.frame_id = frame_id;
-      pub->publish(data);
-    }
-
-    std::chrono::system_clock::time_point current_time(std::chrono::system_clock::now());
-    if ( (current_time - last_diag_pub_time) > diag_pub_duration )
-    {
-      diag_array.status.clear();
-      netft->diagnostics(diag_status);
-      diag_array.status.push_back(diag_status);
-      diag_pub->publish(diag_array);
-      last_diag_pub_time = current_time;
-    }
-
-    rclcpp::spin_some(node);
-    pub_rate.sleep();
-  }
-
+  auto node = netft::NetftNode(argc, argv);
+  rclcpp::shutdown();
   return 0;
 }
